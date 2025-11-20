@@ -1,4 +1,5 @@
 name: Split Runners Multi-arch (split-runners)
+run-name: Split Runners Multi-arch (split-runners)
 
 on:
   push:
