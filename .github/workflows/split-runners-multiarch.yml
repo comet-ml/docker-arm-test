@@ -1,4 +1,4 @@
-name: Split Runners Multi-arch
+name: Split Runners Multi-arch (split-runners)
 
 on:
   push:

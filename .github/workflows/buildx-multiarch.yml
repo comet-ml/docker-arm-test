@@ -1,4 +1,4 @@
-name: Buildx Multi-arch
+name: Buildx Multi-arch (buildx-multiarch)
 
 on:
   push:
