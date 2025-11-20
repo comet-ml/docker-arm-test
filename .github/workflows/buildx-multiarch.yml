@@ -80,7 +80,7 @@ jobs:
           # Get digests
           echo "### Digests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          docker buildx imagetools inspect ${IMAGE_TAG} --format '{{json .}}' | jq -r '.manifests[]? | "**\(.platform.os)/\(.platform.architecture):** \`\(.digest)\`"' >> $GITHUB_STEP_SUMMARY
+          docker buildx imagetools inspect ${IMAGE_TAG} --format '{{json .}}' | jq -r '.manifests[]? | "**\(.platform.os)/\(.platform.architecture):** " + "`" + .digest + "`"' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Add links
