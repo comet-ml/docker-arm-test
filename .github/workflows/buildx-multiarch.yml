@@ -17,6 +17,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -51,7 +52,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
+          provenance: mode=max
+          sbom: true
 
       - name: Inspect image
         id: inspect
@@ -81,6 +83,10 @@ jobs:
           echo "### Digests" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           docker buildx imagetools inspect ${IMAGE_TAG} --format '{{json .}}' | jq -r '.manifests[]? | "**\(.platform.os)/\(.platform.architecture):** " + "`" + .digest + "`"' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**Provenance:** Enabled (mode=max)" >> $GITHUB_STEP_SUMMARY
+          echo "**SBOM:** Enabled" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Add links
