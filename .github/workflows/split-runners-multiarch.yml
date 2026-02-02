@@ -27,9 +27,6 @@ jobs:
       contents: read
       packages: write
       id-token: write
-    outputs:
-      digest_amd64: ${{ steps.set-outputs.outputs.digest_amd64 }}
-      digest_arm64: ${{ steps.set-outputs.outputs.digest_arm64 }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,7 +51,7 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -63,16 +60,21 @@ jobs:
           provenance: mode=max
           sbom: true
 
-      - name: Set job outputs
-        id: set-outputs
+      - name: Save digest to file
         run: |
           DIGEST="${{ steps.build.outputs.digest }}"
-          if [ "${{ matrix.platform_key }}" = "amd64" ]; then
-            echo "digest_amd64=${DIGEST}" >> $GITHUB_OUTPUT
-          elif [ "${{ matrix.platform_key }}" = "arm64" ]; then
-            echo "digest_arm64=${DIGEST}" >> $GITHUB_OUTPUT
-          fi
+          mkdir -p /tmp/digests
+          # Save the full digest (with sha256: prefix)
+          echo "${DIGEST}" > "/tmp/digests/digest-${matrix.platform_key}.txt"
           echo "Digest for ${{ matrix.platform }}: ${DIGEST}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.platform_key }}
+          path: /tmp/digests/digest-${{ matrix.platform_key }}.txt
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Create build summary
         run: |
@@ -123,26 +125,27 @@ jobs:
           tags: |
             type=raw,value=split-runners
 
-      - name: Get digests from build jobs
-        id: get-digests
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - name: Read digests from artifacts
+        id: read-digests
         run: |
-          # Get digests from build job outputs using GitHub API
-          echo "Fetching digests from build jobs..."
-          
-          # Query the workflow run to get job outputs
-          # Each matrix job sets digest_amd64 or digest_arm64 outputs
-          # Find the job that has digest_amd64 output (amd64 build)
-          AMD64_DIGEST=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs --jq '[.jobs[] | select(.name == "build") | select(.conclusion == "success") | select(.outputs.digest_amd64 != null) | .outputs.digest_amd64][0]' | tr -d '"')
-          
-          # Find the job that has digest_arm64 output (arm64 build)
-          ARM64_DIGEST=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs --jq '[.jobs[] | select(.name == "build") | select(.conclusion == "success") | select(.outputs.digest_arm64 != null) | .outputs.digest_arm64][0]' | tr -d '"')
+          # Read digests from downloaded artifact files
+          # With merge-multiple: true, all files are in the same directory
+          AMD64_DIGEST=$(cat /tmp/digests/digest-amd64.txt 2>/dev/null | tr -d '\n\r' || echo "")
+          ARM64_DIGEST=$(cat /tmp/digests/digest-arm64.txt 2>/dev/null | tr -d '\n\r' || echo "")
           
           if [ -z "$AMD64_DIGEST" ] || [ -z "$ARM64_DIGEST" ]; then
-            echo "Error: Could not retrieve digests from build jobs"
-            echo "AMD64_DIGEST: ${AMD64_DIGEST}"
-            echo "ARM64_DIGEST: ${ARM64_DIGEST}"
-            echo "Debug: Listing all build job outputs..."
-            gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs --jq '.jobs[] | select(.name == "build") | {name: .name, conclusion: .conclusion, outputs: .outputs}'
+            echo "Error: Could not retrieve digests from artifacts"
+            echo "AMD64_DIGEST: '${AMD64_DIGEST}'"
+            echo "ARM64_DIGEST: '${ARM64_DIGEST}'"
+            echo "Available files:"
+            find /tmp/digests -type f -exec echo "File: {}" \; -exec cat {} \; || true
             exit 1
           fi
           
@@ -154,8 +157,8 @@ jobs:
           
       - name: Create manifest list and push
         run: |
-          AMD64_DIGEST="${{ steps.get-digests.outputs.AMD64_DIGEST }}"
-          ARM64_DIGEST="${{ steps.get-digests.outputs.ARM64_DIGEST }}"
+          AMD64_DIGEST="${{ steps.read-digests.outputs.AMD64_DIGEST }}"
+          ARM64_DIGEST="${{ steps.read-digests.outputs.ARM64_DIGEST }}"
           
           # Create manifest list
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
